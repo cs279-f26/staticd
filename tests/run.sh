@@ -19,6 +19,7 @@ check query     'GET /index.html?x=1 HTTP/1.0'      'It works'
 check head      'HEAD /index.html HTTP/1.0'         'Content-Length:'
 check missing   'GET /nope.html HTTP/1.0'           '404 Not Found'
 check method    'POST / HTTP/1.0'                   '405'
-check dotdot    'GET /../../etc/passwd HTTP/1.0'    '404 Not Found'
+check dotdot    'GET /../../etc/passwd HTTP/1.0'    '400 Bad Request'
+check encoded   'GET /%2e%2e/%2e%2e/etc/passwd HTTP/1.0' '400 Bad Request'
 check bad       'GARBAGE'                           '400'
 exit $fail

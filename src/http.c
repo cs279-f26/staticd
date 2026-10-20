@@ -1,6 +1,8 @@
 #include "http.h"
 
 #include <ctype.h>
+#include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -53,15 +55,28 @@ static int url_decode(char *s)
     return 0;
 }
 
-/* Removes every "../" and "/.." segment, so the path stays under the root. */
-static void strip_dotdot(char *s)
+/* Rejects any "." or ".." path segment, after decoding. */
+static int has_dot_segment(const char *s)
 {
-    char *p;
+    for (const char *seg = s; seg != NULL; seg = strchr(seg + 1, '/')) {
+        const char *p = seg + 1;
+        size_t len = strcspn(p, "/");
+        if ((len == 1 && p[0] == '.') || (len == 2 && p[0] == '.' && p[1] == '.'))
+            return 1;
+    }
+    return 0;
+}
 
-    while ((p = strstr(s, "../")) != NULL)
-        memmove(p, p + 3, strlen(p + 3) + 1);
-    while ((p = strstr(s, "/..")) != NULL && (p[3] == '\0' || p[3] == '/'))
-        memmove(p, p + 3, strlen(p + 3) + 1);
+/* Whether path, once resolved, still lies under root. */
+static int under_root(const char *root, const char *path)
+{
+    char rroot[PATH_MAX], rpath[PATH_MAX];
+    size_t len;
+
+    if (realpath(root, rroot) == NULL || realpath(path, rpath) == NULL)
+        return 0;
+    len = strlen(rroot);
+    return strncmp(rroot, rpath, len) == 0 && (rpath[len] == '/' || rpath[len] == '\0');
 }
 
 /* Maps the request target to a file path under root. Returns -1 if invalid. */
@@ -73,8 +88,7 @@ static int resolve(const char *root, char *target, char *path, size_t size)
     target[strcspn(target, "?#")] = '\0';
     if (target[0] != '/')
         return -1;
-    strip_dotdot(target);
-    if (url_decode(target) != 0)
+    if (url_decode(target) != 0 || has_dot_segment(target))
         return -1;
     n = snprintf(path, size, "%s%s", root, target);
     if (n < 0 || (size_t)n >= size)
@@ -85,7 +99,7 @@ static int resolve(const char *root, char *target, char *path, size_t size)
         if (n < 0)
             return -1;
     }
-    return 0;
+    return stat(path, &st) != 0 || under_root(root, path) ? 0 : -1;
 }
 
 void serve(const char *root, FILE *in, FILE *out)
